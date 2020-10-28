@@ -35,7 +35,7 @@ function handleOPRFIn(OPRF_in){
 	//get point on curve from random value
 	let point = ecurve.Point.fromAffine(curve, x, y);
 	
-	//get beta value by multiplying point with k
+	//get beta value by raising point to k
 	let beta = point.multiply(k);
 	
 	//get beta point values

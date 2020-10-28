@@ -8,13 +8,12 @@ import './style.css';
 class Form extends React.Component {
 	constructor(props) {
 		super(props);
-		this.domain = React.createRef();
-		this.key = React.createRef();
+		this.password = React.createRef();
 		this.parseSubmission = this.parseSubmission.bind(this);
 	}
 	
 	async hashIntoEC(plaintext){
-		//get SHA-256 hash of key + domain as private key
+		//get SHA-256 hash of password
 		let hash = crypto.createHash('sha256').update(plaintext).digest('hex');
 		
 		//get random integer p for blinding
@@ -28,12 +27,11 @@ class Form extends React.Component {
 		//get inverse of p for de-blinding
 		let p_inv = p.modInverse(curve.n);
 		
-		//public key is G ^ hash value
-		let public_key = curve.G.multiply(BigInt.fromHex(hash));
-		
+		//get point from hash as G ^ hash value
+		let hash_point = curve.G.multiply(BigInt.fromHex(hash));
 		
 		//OPRF in value from raising hash to p
-		let alpha = public_key.multiply(p);
+		let alpha = hash_point.multiply(p);
 		
 		//store as object
 		let OPRF_in = {'x': alpha.affineX.toHex(), 'y': alpha.affineY.toHex()};
@@ -68,7 +66,7 @@ class Form extends React.Component {
 		let deblind = beta_point.multiply(p_inv);
 		
 		//hash key + beta to generate rwd
-		let rwd_string = deblind.affineX.toHex() + deblind.affineY.toHex() + this.key
+		let rwd_string = deblind.affineX.toHex() + deblind.affineY.toHex() + this.password
 		let rwd_hash = crypto.createHash('sha256').update(rwd_string).digest('hex').toString();
 		
 		//map hex to random characters
@@ -93,8 +91,8 @@ class Form extends React.Component {
 		//prevent default form submission behavior
 		event.preventDefault();
 		
-		//hash key and domain into elliptic curve
-		let plaintext = this.domain.current.value + this.key.current.value;
+		//hash password and domain into elliptic curve
+		let plaintext = this.domain.current.value + this.password.current.value;
 		
 		//get random password
 		let rwd = await this.hashIntoEC(plaintext);
@@ -103,7 +101,7 @@ class Form extends React.Component {
 		const element = (
 			<div className="center-div">
 				<div className="center-div inner">
-					<h3>Random Key</h3>
+					<h3>Random Password</h3>
 					<label>{rwd}</label>
 					<input className="button" type="button" value="Home" onClick={() => window.location.reload()} />
 				</div>
@@ -116,11 +114,9 @@ class Form extends React.Component {
 	render() {
 		return (
 			<form onSubmit={this.parseSubmission}>
-				<h1>SPHINX random key generator</h1>
-				<h3>Domain</h3>
-				<input type="text" name='domain' ref={this.domain} required/>
-				<h3>Key</h3>
-				<input type="password" name='key' ref={this.key} required/>
+				<h1>Zero-Knowledge Password Vault</h1>
+				<h3>Password</h3>
+				<input type="password" name='password' ref={this.password} required/>
 				<input className="button" type="submit" value="Submit" />
 			</form>
 		);
