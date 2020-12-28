@@ -1,8 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
-import BigInt from 'bigi';
+import BigI from 'bigi';
 import ecurve from 'ecurve';
 import crypto from 'crypto';
+import { randomInt } from 'mathjs';
 import './style.css';
 
 class Form extends React.Component {
@@ -12,38 +13,47 @@ class Form extends React.Component {
 		this.parseSubmission = this.parseSubmission.bind(this);
 	}
 	
-	async hashIntoEC(plaintext){
-		//get SHA-256 hash of password
-		let hash = crypto.createHash('sha256').update(plaintext).digest('hex');
+	hashIntoCurve(plaintext, curve){
+		//try-and-increment method
+		const hash_function = crypto.createHash('sha256');
+		let iterations = 0;
+		let hash = hash_function.update(plaintext + iterations).digest('hex');
+		let hash_point = curve.G.multiply(BigI(hash));
 		
-		//get random integer p for blinding
-		let p_buf = new Uint8Array(32);
-		crypto.randomFillSync(p_buf);
-		let p = BigInt.fromBuffer(p_buf)
+		//multiply hash of plaintext || iteration counter by generator function to find valid point on curve
+		while (!curve.isOnCurve(hash_point) || curve.isInfinity(hash_point)){
+			iterations++;
+			hash = hash_function.update(plaintext + iterations).digest('hex');
+			hash_point = curve.G.multiply(BigI(hash));
+		}
+		return hash_point;
+	}
+	
+	async hashIntoEC(plaintext){
 		
 		//new elliptical curve
 		let curve = ecurve.getCurveByName('secp256k1');
 		
-		//get inverse of p for de-blinding
-		let p_inv = p.modInverse(curve.n);
+		//get point on curve from hashing plaintext || iteration counter
+		let hash_point = this.hashIntoCurve(plaintext, curve);
 		
-		//get point from hash as G ^ hash value
-		let hash_point = curve.G.multiply(BigInt.fromHex(hash));
+		//random value for blinding
+		let r = BigI(randomInt(1, Number(curve.n.toString())).toString());
 		
-		//OPRF in value from raising hash to p
-		let alpha = hash_point.multiply(p);
+		//alpha point on curve from hash point using blinding factor
+		let alpha_point = hash_point.multiply(r);
 		
-		//store as object
-		let OPRF_in = {'x': alpha.affineX.toHex(), 'y': alpha.affineY.toHex()};
+		//compress point
+		let OPRF_in = {'alpha_point': alpha_point.getEncoded()};
 		
-		//get random password
-		let rwd = await this.getFromServer(OPRF_in, curve, p_inv);
+		//send alpha to server to get beta
+		let rwd = await this.getFromServer(OPRF_in, curve, r);
 		
 		return rwd;
 	}
 	
-	async getFromServer(OPRF_in, curve, p_inv) {
-		//send hash to server
+	async getFromServer(OPRF_in, curve, r) {
+		//send alpha to server
 		let response = await fetch('http://127.0.0.1:8081/point', {
 			headers: {
 				'Content-Type': 'text/plain'
@@ -53,21 +63,20 @@ class Form extends React.Component {
 		});
 		
 		//get beta as JSON
-		let beta = JSON.parse(await response.text());
+		let OPRF_out = JSON.parse(await response.text());
 		
-		//get beta points
-		let x = BigInt.fromHex(beta.x);
-		let y = BigInt.fromHex(beta.y);
+		//get beta point
+		let beta_buffer = Buffer.from(OPRF_out.beta_point);
+		let beta = ecurve.Point.decodeFrom(curve, beta_buffer);
 		
-		//get beta point on curve
-		let beta_point = ecurve.Point.fromAffine(curve, x, y);
-		
-		//deblind beta point with p_inv
-		let deblind = beta_point.multiply(p_inv);
+		//deblind beta point with inverse of blinding factor
+		let r_inv = r.modInverse(curve.n);
+		let deblind = beta.multiply(r_inv);
 		
 		//hash key + beta to generate rwd
-		let rwd_string = deblind.affineX.toHex() + deblind.affineY.toHex() + this.password
-		let rwd_hash = crypto.createHash('sha256').update(rwd_string).digest('hex').toString();
+		let rwd_string = deblind.toString();
+		let rwd_hash = crypto.createHash('sha256').update(rwd_string).digest('hex');
+		console.log(rwd_hash);
 		
 		//map hex to random characters
 		let rwd = '';
@@ -92,7 +101,7 @@ class Form extends React.Component {
 		event.preventDefault();
 		
 		//hash password and domain into elliptic curve
-		let plaintext = this.domain.current.value + this.password.current.value;
+		let plaintext = this.password.current.value;
 		
 		//get random password
 		let rwd = await this.hashIntoEC(plaintext);

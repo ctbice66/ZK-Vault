@@ -1,6 +1,6 @@
 # ZK-Vault
 
-A pure JavaScript implementation of the SPHINX zero-knowledge key management protocol using React and Node.js.
+A pure JavaScript implementation of the DE-PAKE zero-knowledge key management protocol using React and Node.js.
 
 # Installation
 
